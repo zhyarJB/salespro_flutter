@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'services/auth_service.dart';
-import 'success_screen.dart';
+import 'home_screen.dart';
 
 class SalesRepLoginScreen extends StatefulWidget {
   const SalesRepLoginScreen({Key? key}) : super(key: key);
@@ -31,10 +31,10 @@ class _SalesRepLoginScreenState extends State<SalesRepLoginScreen> {
       _errorMessage = success ? null : 'Invalid email or password';
     });
     if (success) {
-      // Navigate to SuccessScreen
+      // Navigate to HomeScreen
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const SuccessScreen()),
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
       );
     }
   }
