@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -15,6 +17,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Duration _elapsed = Duration.zero;
   Timer? _timer;
   bool _visitStarted = false;
+
+  static const LatLng erbilLatLng = LatLng(36.1911, 44.0092);
 
   @override
   void initState() {
@@ -111,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
               }),
             ),
           ),
-          // Map placeholder
+          // Real OpenStreetMap
           Expanded(
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 8.0),
@@ -119,10 +123,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: Colors.grey[300],
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Center(
-                child: Text(
-                  'Map will be here',
-                  style: TextStyle(fontSize: 18, color: Colors.black54),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: FlutterMap(
+                  options: MapOptions(
+                    initialCenter: erbilLatLng,
+                    initialZoom: 13.0,
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      subdomains: const ['a', 'b', 'c'],
+                      userAgentPackageName: 'com.example.salespro_flutter',
+                    ),
+                  ],
                 ),
               ),
             ),
