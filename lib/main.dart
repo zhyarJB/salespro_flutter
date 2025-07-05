@@ -18,8 +18,8 @@ class SalesProApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      // home: const SalesRepLoginScreen(),
-      home: HomeScreen(),
+      home: const SalesRepLoginScreen(),
+      // home: HomeScreen(),
     );
   }
 }
