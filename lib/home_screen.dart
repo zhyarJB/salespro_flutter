@@ -27,6 +27,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final List<String> categories;
+  late final List<String> categoryDisplayNames;
   int selectedCategory = 0;
 
   Duration _elapsed = Duration.zero;
@@ -44,7 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    categories = ['Pharmacy', 'Doctor', 'Drugstore', 'Other'];
+    categories = ['all', 'pharmacy', 'doctor', 'drugstore', 'clinic'];
+    categoryDisplayNames = ['All', 'Pharmacy', 'Doctor', 'Drugstore', 'Clinic'];
     _restoreVisitState();
     _fetchProfile();
     _fetchLocations();
@@ -206,9 +208,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     value: type,
-                    items: categories.map((cat) => DropdownMenuItem(
-                      value: cat,
-                      child: Text(cat),
+                    items: categories.asMap().entries.map((entry) => DropdownMenuItem(
+                      value: entry.value,
+                      child: Text(categoryDisplayNames[entry.key]),
                     )).toList(),
                     onChanged: (value) {
                       if (value != null) type = value;
@@ -273,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final url = Uri.parse('http://10.0.2.2:8000/api/v1/locations');
     final body = {
       'name': name,
-      'type': type.toLowerCase(),
+      'type': type,
       'latitude': latlng.latitude,
       'longitude': latlng.longitude,
       'address': address,
@@ -310,7 +312,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Icon _getMarkerIcon(String type) {
-    switch (type.toLowerCase()) {
+    switch (type) {
       case 'pharmacy':
         return const Icon(Icons.location_on, color: Colors.purple, size: 36);
       case 'doctor':
@@ -469,22 +471,25 @@ class _HomeScreenState extends State<HomeScreen> {
           // Category filter
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.start,
-              children: List.generate(categories.length, (index) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: ChoiceChip(
-                    label: Text(categories[index]),
-                    selected: selectedCategory == index,
-                    onSelected: (selected) {
-                      setState(() {
-                        selectedCategory = index;
-                      });
-                    },
-                  ),
-                );
-              }),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: List.generate(categories.length, (index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ChoiceChip(
+                      label: Text(categoryDisplayNames[index]),
+                      selected: selectedCategory == index,
+                      onSelected: (selected) {
+                        setState(() {
+                          selectedCategory = index;
+                        });
+                      },
+                    ),
+                  );
+                }),
+              ),
             ),
           ),
           // Real OpenStreetMap with marker adding
@@ -512,93 +517,99 @@ class _HomeScreenState extends State<HomeScreen> {
                       userAgentPackageName: 'com.example.salespro_flutter',
                     ),
                     MarkerLayer(
-                      markers: _markers.map((marker) => Marker(
-                        point: marker.position,
-                        width: 40,
-                        height: 40,
-                        child: GestureDetector(
-                          onTap: () {
-                            showModalBottomSheet(
-                              context: context,
-                              shape: const RoundedRectangleBorder(
-                                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                              ),
-                              builder: (context) {
-                                return Padding(
-                                  padding: const EdgeInsets.all(20.0),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          _getMarkerIcon(marker.type),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Text(
-                                              marker.name,
-                                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      markers: _markers
+                        .where((marker) {
+                          final selected = categories[selectedCategory];
+                          if (selected == 'all') return true;
+                          return marker.type == selected;
+                        })
+                        .map((marker) => Marker(
+                          point: marker.position,
+                          width: 40,
+                          height: 40,
+                          child: GestureDetector(
+                            onTap: () {
+                              showModalBottomSheet(
+                                context: context,
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                                ),
+                                builder: (context) {
+                                  return Padding(
+                                    padding: const EdgeInsets.all(20.0),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            _getMarkerIcon(marker.type),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Text(
+                                                marker.name,
+                                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                              ),
                                             ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(Icons.edit, color: Colors.blue),
-                                            onPressed: () {
-                                              Navigator.of(context).pop();
-                                              _showEditLocationDialog(marker);
-                                            },
-                                          ),
-                                        ],
+                                            IconButton(
+                                              icon: const Icon(Icons.edit, color: Colors.blue),
+                                              onPressed: () {
+                                                Navigator.of(context).pop();
+                                                _showEditLocationDialog(marker);
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _infoRow('Type', marker.type),
+                                        _infoRow('Address', marker.address ?? ''),
+                                        _infoRow('Contact Person', marker.contactPerson ?? ''),
+                                        _infoRow('Phone', marker.phone ?? ''),
+                                        if ((marker.email ?? '').isNotEmpty)
+                                          _infoRow('Email', marker.email ?? ''),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _getMarkerIcon(marker.type),
+                                const SizedBox(height: 2),
+                                Flexible(
+                                  child: Container(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 80,
+                                      maxHeight: 20,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(6),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black12,
+                                          blurRadius: 2,
+                                        ),
+                                      ],
+                                    ),
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        marker.name,
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
                                       ),
-                                      const SizedBox(height: 12),
-                                      _infoRow('Type', marker.type),
-                                      _infoRow('Address', marker.address ?? ''),
-                                      _infoRow('Contact Person', marker.contactPerson ?? ''),
-                                      _infoRow('Phone', marker.phone ?? ''),
-                                      if ((marker.email ?? '').isNotEmpty)
-                                        _infoRow('Email', marker.email ?? ''),
-                                    ],
-                                  ),
-                                );
-                              },
-                            );
-                          },
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _getMarkerIcon(marker.type),
-                              const SizedBox(height: 2),
-                              Flexible(
-                                child: Container(
-                                  constraints: const BoxConstraints(
-                                    maxWidth: 80,
-                                    maxHeight: 20,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(6),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black12,
-                                        blurRadius: 2,
-                                      ),
-                                    ],
-                                  ),
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Text(
-                                      marker.name,
-                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                      )).toList(),
+                        )).toList(),
                     ),
                   ],
                 ),
@@ -688,7 +699,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Normalize type to match the categories list exactly
     if (!categories.contains(type)) {
       final match = categories.firstWhere(
-        (cat) => cat.toLowerCase() == type.toLowerCase(),
+        (cat) => cat == type,
         orElse: () => categories[0],
       );
       type = match;
@@ -713,9 +724,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     value: type,
-                    items: categories.map((cat) => DropdownMenuItem(
-                      value: cat,
-                      child: Text(cat),
+                    items: categories.asMap().entries.map((entry) => DropdownMenuItem(
+                      value: entry.value,
+                      child: Text(categoryDisplayNames[entry.key]),
                     )).toList(),
                     onChanged: (value) {
                       if (value != null) type = value;
@@ -804,7 +815,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final updateUrl = Uri.parse('http://10.0.2.2:8000/api/v1/locations/$id');
         final body = {
           'name': name,
-          'type': type.toLowerCase(),
+          'type': type,
           'latitude': marker.position.latitude,
           'longitude': marker.position.longitude,
           'address': address,
