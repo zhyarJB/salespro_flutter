@@ -3,6 +3,13 @@ import 'dart:async';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+class PlaceMarker {
+  final LatLng position;
+  final String name;
+  final String type;
+  PlaceMarker({required this.position, required this.name, required this.type});
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
 
@@ -19,6 +26,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _visitStarted = false;
 
   static const LatLng erbilLatLng = LatLng(36.1911, 44.0092);
+
+  List<PlaceMarker> _markers = [];
 
   @override
   void initState() {
@@ -49,6 +58,75 @@ class _HomeScreenState extends State<HomeScreen> {
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     return "${twoDigits(d.inHours)}:${twoDigits(d.inMinutes % 60)}:${twoDigits(d.inSeconds % 60)}";
+  }
+
+  Future<void> _showAddMarkerDialog(LatLng latlng) async {
+    final _formKey = GlobalKey<FormState>();
+    String name = '';
+    String type = categories[0];
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Add Place'),
+          content: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  decoration: const InputDecoration(labelText: 'Place Name'),
+                  validator: (value) => value == null || value.isEmpty ? 'Enter a name' : null,
+                  onChanged: (value) => name = value,
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: type,
+                  items: categories.map((cat) => DropdownMenuItem(
+                    value: cat,
+                    child: Text(cat),
+                  )).toList(),
+                  onChanged: (value) {
+                    if (value != null) type = value;
+                  },
+                  decoration: const InputDecoration(labelText: 'Type'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (_formKey.currentState!.validate()) {
+                  setState(() {
+                    _markers.add(PlaceMarker(position: latlng, name: name, type: type));
+                  });
+                  Navigator.of(context).pop();
+                }
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Icon _getMarkerIcon(String type) {
+    switch (type) {
+      case 'Pharmacy':
+        return const Icon(Icons.location_on, color: Colors.purple, size: 36);
+      case 'Doctor':
+        return const Icon(Icons.location_on, color: Colors.blue, size: 36);
+      case 'Drugstore':
+        return const Icon(Icons.location_on, color: Colors.orange, size: 36);
+      default:
+        return const Icon(Icons.location_on, color: Colors.green, size: 36);
+    }
   }
 
   @override
@@ -115,7 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
               }),
             ),
           ),
-          // Real OpenStreetMap
+          // Real OpenStreetMap with marker adding
           Expanded(
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 8.0),
@@ -129,12 +207,44 @@ class _HomeScreenState extends State<HomeScreen> {
                   options: MapOptions(
                     initialCenter: erbilLatLng,
                     initialZoom: 13.0,
+                    onLongPress: (tapPosition, latlng) {
+                      _showAddMarkerDialog(latlng);
+                    },
                   ),
                   children: [
                     TileLayer(
-                      urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      subdomains: const ['a', 'b', 'c'],
+                      urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                      subdomains: const ['a', 'b', 'c', 'd'],
                       userAgentPackageName: 'com.example.salespro_flutter',
+                    ),
+                    MarkerLayer(
+                      markers: _markers.map((marker) => Marker(
+                        point: marker.position,
+                        width: 40,
+                        height: 40,
+                        child: Column(
+                          children: [
+                            _getMarkerIcon(marker.type),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(6),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black12,
+                                    blurRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: Text(
+                                marker.name,
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )).toList(),
                     ),
                   ],
                 ),
