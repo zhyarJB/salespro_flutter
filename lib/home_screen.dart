@@ -6,6 +6,7 @@ import 'services/auth_service.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
 
 class PlaceMarker {
   final LatLng position;
@@ -41,6 +42,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<PlaceMarker> _markers = [];
   bool _isLoading = true;
   String? _salesRepName;
+  LatLng? _currentPosition;
+  late final MapController _mapController = MapController();
 
   @override
   void initState() {
@@ -50,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _restoreVisitState();
     _fetchProfile();
     _fetchLocations();
+    _getCurrentLocation();
   }
 
   Future<void> _restoreVisitState() async {
@@ -149,6 +153,56 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       setState(() { _isLoading = false; });
       print('Error fetching locations: $e');
+    }
+  }
+
+  Future<void> _getCurrentLocation() async {
+    print('Attempting to get current location...');
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      print('Location services are disabled.');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Location services are disabled. Please enable them.')),
+        );
+      }
+      return;
+    }
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        print('Location permission denied.');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Location permission denied. Please allow location access.')),
+          );
+        }
+        return;
+      }
+    }
+    if (permission == LocationPermission.deniedForever) {
+      print('Location permission permanently denied.');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Location permission permanently denied. Please enable it in settings.')),
+        );
+      }
+      return;
+    }
+    try {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      setState(() {
+        _currentPosition = LatLng(position.latitude, position.longitude);
+      });
+      print('Current position: [32m${position.latitude}, ${position.longitude}[0m');
+    } catch (e) {
+      print('Error getting location: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error getting location: $e')),
+        );
+      }
     }
   }
 
@@ -334,6 +388,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    print('Building HomeScreen. _currentPosition=$_currentPosition');
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -468,6 +523,25 @@ class _HomeScreenState extends State<HomeScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
         children: [
+          if (_currentPosition == null)
+            FutureBuilder(
+              future: Future.delayed(const Duration(seconds: 5)),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.done && _currentPosition == null) {
+                  return Container(
+                    color: Colors.red[100],
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    child: const Text(
+                      'Unable to get your location. Please check permissions and location services.',
+                      style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
           // Category filter
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
@@ -503,6 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: FlutterMap(
+                  mapController: _mapController,
                   options: MapOptions(
                     initialCenter: erbilLatLng,
                     initialZoom: 13.0,
@@ -517,99 +592,108 @@ class _HomeScreenState extends State<HomeScreen> {
                       userAgentPackageName: 'com.example.salespro_flutter',
                     ),
                     MarkerLayer(
-                      markers: _markers
-                        .where((marker) {
-                          final selected = categories[selectedCategory];
-                          if (selected == 'all') return true;
-                          return marker.type == selected;
-                        })
-                        .map((marker) => Marker(
-                          point: marker.position,
-                          width: 40,
-                          height: 40,
-                          child: GestureDetector(
-                            onTap: () {
-                              showModalBottomSheet(
-                                context: context,
-                                shape: const RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                                ),
-                                builder: (context) {
-                                  return Padding(
-                                    padding: const EdgeInsets.all(20.0),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            _getMarkerIcon(marker.type),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Text(
-                                                marker.name,
-                                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      markers: [
+                        if (_currentPosition != null)
+                          Marker(
+                            point: _currentPosition!,
+                            width: 40,
+                            height: 40,
+                            child: Icon(Icons.my_location, color: Colors.blue, size: 36),
+                          ),
+                        ..._markers
+                          .where((marker) {
+                            final selected = categories[selectedCategory];
+                            if (selected == 'all') return true;
+                            return marker.type == selected;
+                          })
+                          .map((marker) => Marker(
+                            point: marker.position,
+                            width: 40,
+                            height: 40,
+                            child: GestureDetector(
+                              onTap: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  shape: const RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                                  ),
+                                  builder: (context) {
+                                    return Padding(
+                                      padding: const EdgeInsets.all(20.0),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              _getMarkerIcon(marker.type),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Text(
+                                                  marker.name,
+                                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                                ),
                                               ),
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(Icons.edit, color: Colors.blue),
-                                              onPressed: () {
-                                                Navigator.of(context).pop();
-                                                _showEditLocationDialog(marker);
-                                              },
-                                            ),
-                                          ],
+                                              IconButton(
+                                                icon: const Icon(Icons.edit, color: Colors.blue),
+                                                onPressed: () {
+                                                  Navigator.of(context).pop();
+                                                  _showEditLocationDialog(marker);
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 12),
+                                          _infoRow('Type', marker.type),
+                                          _infoRow('Address', marker.address ?? ''),
+                                          _infoRow('Contact Person', marker.contactPerson ?? ''),
+                                          _infoRow('Phone', marker.phone ?? ''),
+                                          if ((marker.email ?? '').isNotEmpty)
+                                            _infoRow('Email', marker.email ?? ''),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _getMarkerIcon(marker.type),
+                                  const SizedBox(height: 2),
+                                  Flexible(
+                                    child: Container(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 80,
+                                        maxHeight: 20,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(6),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black12,
+                                            blurRadius: 2,
+                                          ),
+                                        ],
+                                      ),
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          marker.name,
+                                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 1,
                                         ),
-                                        const SizedBox(height: 12),
-                                        _infoRow('Type', marker.type),
-                                        _infoRow('Address', marker.address ?? ''),
-                                        _infoRow('Contact Person', marker.contactPerson ?? ''),
-                                        _infoRow('Phone', marker.phone ?? ''),
-                                        if ((marker.email ?? '').isNotEmpty)
-                                          _infoRow('Email', marker.email ?? ''),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _getMarkerIcon(marker.type),
-                                const SizedBox(height: 2),
-                                Flexible(
-                                  child: Container(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 80,
-                                      maxHeight: 20,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(6),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black12,
-                                          blurRadius: 2,
-                                        ),
-                                      ],
-                                    ),
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Text(
-                                        marker.name,
-                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                                        overflow: TextOverflow.ellipsis,
-                                        maxLines: 1,
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                        )).toList(),
+                          )).toList(),
+                      ],
                     ),
                   ],
                 ),
@@ -670,6 +754,10 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        child: Icon(Icons.my_location),
+        onPressed: _getCurrentLocationAndCenter,
       ),
       backgroundColor: Colors.white,
     );
@@ -844,6 +932,23 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
       }
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_currentPosition != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(_currentPosition!, 16.0);
+      });
+    }
+  }
+
+  void _getCurrentLocationAndCenter() async {
+    await _getCurrentLocation();
+    if (_currentPosition != null) {
+      _mapController.move(_currentPosition!, 16.0);
     }
   }
 }
