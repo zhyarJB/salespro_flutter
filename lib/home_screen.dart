@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'services/auth_service.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class PlaceMarker {
   final LatLng position;
@@ -28,11 +31,87 @@ class _HomeScreenState extends State<HomeScreen> {
   static const LatLng erbilLatLng = LatLng(36.1911, 44.0092);
 
   List<PlaceMarker> _markers = [];
+  bool _isLoading = true;
+  String? _salesRepName;
 
   @override
   void initState() {
     super.initState();
     categories = ['Pharmacy', 'Doctor', 'Drugstore', 'Other'];
+    _fetchProfile();
+    _fetchLocations();
+  }
+
+  Future<void> _fetchProfile() async {
+    try {
+      final authService = AuthService();
+      final token = await authService.getToken();
+      if (token == null) return;
+      final url = Uri.parse('http://10.0.2.2:8000/api/v1/profile');
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _salesRepName = data['data']['user']['name'] ?? 'Sales Rep';
+        });
+      }
+    } catch (e) {
+      // Optionally handle error
+    }
+  }
+
+  Future<void> _fetchLocations() async {
+    setState(() { _isLoading = true; });
+    try {
+      final authService = AuthService();
+      final token = await authService.getToken();
+      if (token == null) {
+        setState(() { _isLoading = false; });
+        print('No auth token found for fetching locations.');
+        return;
+      }
+      final url = Uri.parse('http://10.0.2.2:8000/api/v1/locations');
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+      print('GET /locations status: ${response.statusCode}');
+      print('API response: ${response.body}');
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final locations = data['data']['locations'] as List<dynamic>;
+        setState(() {
+          _markers = locations
+              .where((loc) => loc['latitude'] != null && loc['longitude'] != null)
+              .map((loc) => PlaceMarker(
+                    position: LatLng(
+                      (loc['latitude'] as num).toDouble(),
+                      (loc['longitude'] as num).toDouble(),
+                    ),
+                    name: loc['name'] ?? '',
+                    type: loc['type'] ?? '',
+                  ))
+              .toList();
+          _isLoading = false;
+        });
+        print('Markers after fetch: $_markers');
+      } else {
+        setState(() { _isLoading = false; });
+        print('Failed to fetch locations: ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() { _isLoading = false; });
+      print('Error fetching locations: $e');
+    }
   }
 
   void _startVisit() {
@@ -100,11 +179,10 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 if (_formKey.currentState!.validate()) {
-                  setState(() {
-                    _markers.add(PlaceMarker(position: latlng, name: name, type: type));
-                  });
+                  // Save to backend
+                  await _saveLocationToBackend(name, type, latlng);
                   Navigator.of(context).pop();
                 }
               },
@@ -116,14 +194,57 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _saveLocationToBackend(String name, String type, LatLng latlng) async {
+    final authService = AuthService();
+    final token = await authService.getToken();
+    if (token == null) {
+      print('No auth token found.');
+      return;
+    }
+    final url = Uri.parse('http://10.0.2.2:8000/api/v1/locations');
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'name': name,
+        'type': type.toLowerCase(),
+        'latitude': latlng.latitude,
+        'longitude': latlng.longitude,
+        'address': 'Unknown',
+      }),
+    );
+    print('POST /locations status: ${response.statusCode}');
+    print('POST /locations response: ${response.body}');
+    if (response.statusCode == 201) {
+      setState(() {
+        _markers.add(PlaceMarker(position: latlng, name: name, type: type));
+      });
+      print('PinPoint added and saved to backend: $name, $type, $latlng');
+      print('Markers after add: $_markers');
+      await _fetchLocations();
+    } else {
+      print('Failed to save PinPoint: ${response.body}');
+      // Optionally show error to user
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save PinPoint: ${response.body}')),
+      );
+    }
+  }
+
   Icon _getMarkerIcon(String type) {
-    switch (type) {
-      case 'Pharmacy':
+    switch (type.toLowerCase()) {
+      case 'pharmacy':
         return const Icon(Icons.location_on, color: Colors.purple, size: 36);
-      case 'Doctor':
+      case 'doctor':
         return const Icon(Icons.location_on, color: Colors.blue, size: 36);
-      case 'Drugstore':
+      case 'drugstore':
         return const Icon(Icons.location_on, color: Colors.orange, size: 36);
+      case 'clinic':
+        return const Icon(Icons.location_on, color: Colors.red, size: 36);
       default:
         return const Icon(Icons.location_on, color: Colors.green, size: 36);
     }
@@ -164,13 +285,112 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.account_circle, color: Colors.black),
-            onPressed: () {},
+          Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.account_circle, color: Colors.black),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            ),
           ),
         ],
       ),
-      body: Column(
+      drawer: Drawer(
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 24),
+              Center(
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 36,
+                      backgroundColor: Colors.brown,
+                      child: Text(
+                        (_salesRepName != null && _salesRepName!.isNotEmpty)
+                          ? _salesRepName![0].toUpperCase()
+                          : '',
+                        style: const TextStyle(fontSize: 36, color: Colors.white),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _salesRepName ?? '',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.shopping_bag, color: Colors.blue),
+                title: const Text('My Orders'),
+                onTap: () {},
+              ),
+              ListTile(
+                leading: const Icon(Icons.calendar_today, color: Colors.deepPurple),
+                title: const Text('Calendar'),
+                onTap: () {},
+              ),
+              ListTile(
+                leading: const Icon(Icons.bar_chart, color: Colors.green),
+                title: const Text('Report'),
+                onTap: () {},
+              ),
+              ListTile(
+                leading: const Icon(Icons.add_location_alt, color: Colors.orange),
+                title: const Text('Suggest Place'),
+                onTap: () {},
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.language, color: Colors.teal),
+                title: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: const [
+                    Text('Language'),
+                    Text('English', style: TextStyle(color: Colors.grey)),
+                  ],
+                ),
+                onTap: () {},
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text('Logout', style: TextStyle(color: Colors.red)),
+                onTap: () async {
+                  final authService = AuthService();
+                  final token = await authService.getToken();
+                  if (token != null) {
+                    final url = Uri.parse('http://10.0.2.2:8000/api/v1/logout');
+                    await http.post(
+                      url,
+                      headers: {
+                        'Authorization': 'Bearer $token',
+                        'Accept': 'application/json',
+                      },
+                    );
+                  }
+                  await authService.logout();
+                  if (!mounted) return;
+                  Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                },
+              ),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  '@SalesPro',
+                  style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
         children: [
           // Category filter
           Padding(
