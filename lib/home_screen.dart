@@ -223,23 +223,36 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: 40,
                         height: 40,
                         child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             _getMarkerIcon(marker.type),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(6),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black12,
-                                    blurRadius: 2,
+                            const SizedBox(height: 2),
+                            Flexible(
+                              child: Container(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 80,
+                                  maxHeight: 20,
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(6),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black12,
+                                      blurRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    marker.name,
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
                                   ),
-                                ],
-                              ),
-                              child: Text(
-                                marker.name,
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
                               ),
                             ),
                           ],
