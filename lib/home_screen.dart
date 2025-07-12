@@ -49,6 +49,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   LatLng? _currentPosition;
   late final MapController _mapController = MapController();
   PlaceMarker? _selectedMarker;
+  String searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -402,6 +404,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void dispose() {
     _timer?.cancel();
     _animationController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -425,10 +428,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               const SizedBox(width: 8),
               Expanded(
                 child: TextField(
+                  controller: _searchController,
                   decoration: const InputDecoration(
                     border: InputBorder.none,
                     hintText: 'Search for place',
                   ),
+                  onChanged: (value) {
+                    setState(() {
+                      searchQuery = value.trim().toLowerCase();
+                    });
+                  },
                 ),
               ),
             ],
@@ -624,8 +633,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ..._markers
                           .where((marker) {
                             final selected = categories[selectedCategory];
-                            if (selected == 'all') return true;
-                            return marker.type == selected;
+                            final matchesCategory = selected == 'all' || marker.type == selected;
+                            final matchesSearch = searchQuery.isEmpty ||
+                              marker.name.toLowerCase().contains(searchQuery) ||
+                              marker.type.toLowerCase().contains(searchQuery);
+                            return matchesCategory && matchesSearch;
                           })
                           .map((marker) => Marker(
                             point: marker.position,
