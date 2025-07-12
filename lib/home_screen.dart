@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
+import 'visit_activity_screen.dart';
 
 class PlaceMarker {
   final LatLng position;
@@ -26,10 +27,13 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late final List<String> categories;
   late final List<String> categoryDisplayNames;
   int selectedCategory = 0;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   Duration _elapsed = Duration.zero;
   Timer? _timer;
@@ -44,12 +48,26 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _salesRepName;
   LatLng? _currentPosition;
   late final MapController _mapController = MapController();
+  PlaceMarker? _selectedMarker;
 
   @override
   void initState() {
     super.initState();
     categories = ['all', 'pharmacy', 'doctor', 'drugstore', 'clinic'];
     categoryDisplayNames = ['All', 'Pharmacy', 'Doctor', 'Drugstore', 'Clinic'];
+    
+    // Initialize animation controller
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
+    
     _restoreVisitState();
     _fetchProfile();
     _fetchLocations();
@@ -383,6 +401,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -528,16 +547,16 @@ class _HomeScreenState extends State<HomeScreen> {
               future: Future.delayed(const Duration(seconds: 5)),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.done && _currentPosition == null) {
-                  return Container(
-                    color: Colors.red[100],
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(8),
-                    child: const Text(
-                      'Unable to get your location. Please check permissions and location services.',
-                      style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                      textAlign: TextAlign.center,
-                    ),
-                  );
+                  // return Container(
+                  //   color: Colors.red[100],
+                  //   width: double.infinity,
+                  //   padding: const EdgeInsets.all(8),
+                  //   child: const Text(
+                  //     'Unable to get your location. Please check permissions and location services.',
+                  //     style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                  //     textAlign: TextAlign.center,
+                  //   ),
+                  // );
                 }
                 return const SizedBox.shrink();
               },
@@ -568,7 +587,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           // Real OpenStreetMap with marker adding
           Expanded(
-            child: Container(
+            child: Stack(
+              children: [
+                Container(
               margin: const EdgeInsets.symmetric(horizontal: 8.0),
               decoration: BoxDecoration(
                 color: Colors.grey[300],
@@ -612,49 +633,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             height: 40,
                             child: GestureDetector(
                               onTap: () {
-                                showModalBottomSheet(
-                                  context: context,
-                                  shape: const RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                                  ),
-                                  builder: (context) {
-                                    return Padding(
-                                      padding: const EdgeInsets.all(20.0),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              _getMarkerIcon(marker.type),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: Text(
-                                                  marker.name,
-                                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                                                ),
-                                              ),
-                                              IconButton(
-                                                icon: const Icon(Icons.edit, color: Colors.blue),
-                                                onPressed: () {
-                                                  Navigator.of(context).pop();
-                                                  _showEditLocationDialog(marker);
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _infoRow('Type', marker.type),
-                                          _infoRow('Address', marker.address ?? ''),
-                                          _infoRow('Contact Person', marker.contactPerson ?? ''),
-                                          _infoRow('Phone', marker.phone ?? ''),
-                                          if ((marker.email ?? '').isNotEmpty)
-                                            _infoRow('Email', marker.email ?? ''),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                );
+                                    _showLocationCard(marker);
                               },
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -698,6 +677,113 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
+                ),
+                // Location Card Overlay
+                if (_selectedMarker != null)
+                  Positioned.fill(
+                    child: FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: GestureDetector(
+                        onTap: _hideLocationCard,
+                        child: Container(
+                          color: Colors.black54,
+                          child: Center(
+                            child: SlideTransition(
+                              position: _slideAnimation,
+                              child: GestureDetector(
+                                onTap: () {}, // Prevent tap from propagating to background
+                                child: Container(
+                              margin: const EdgeInsets.all(20.0),
+                              padding: const EdgeInsets.all(20.0),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  _getMarkerIcon(_selectedMarker!.type),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      _selectedMarker!.name,
+                                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close, color: Colors.grey),
+                                    onPressed: _hideLocationCard,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              _infoRow('Type', _selectedMarker!.type),
+                              _infoRow('Address', _selectedMarker!.address ?? ''),
+                              _infoRow('Contact Person', _selectedMarker!.contactPerson ?? ''),
+                              _infoRow('Phone', _selectedMarker!.phone ?? ''),
+                              if ((_selectedMarker!.email ?? '').isNotEmpty)
+                                _infoRow('Email', _selectedMarker!.email ?? ''),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () {
+                                        _hideLocationCard();
+                                        _showEditLocationDialog(_selectedMarker!);
+                                      },
+                                      icon: const Icon(Icons.edit),
+                                      label: const Text('Edit'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.blue,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () {
+                                        _hideLocationCard();
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (context) => VisitActivityScreen(
+                                              pharmacyName: _selectedMarker!.name,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.play_arrow),
+                                      label: const Text('Start'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.green,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+    )
+    )
+    ),
+                  ),
+    ],
             ),
           ),
           // Start/Stop Visit button
@@ -761,6 +847,21 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       backgroundColor: Colors.white,
     );
+  }
+
+  void _showLocationCard(PlaceMarker marker) {
+    setState(() {
+      _selectedMarker = marker;
+    });
+    _animationController.forward();
+  }
+
+  void _hideLocationCard() {
+    _animationController.reverse().then((_) {
+      setState(() {
+        _selectedMarker = null;
+      });
+    });
   }
 
   Widget _infoRow(String label, String value) {
