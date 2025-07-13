@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'products_screen.dart';
+import 'report_screen.dart';
 
 class VisitActivityScreen extends StatelessWidget {
   final String pharmacyName;
@@ -109,7 +110,13 @@ class VisitActivityScreen extends StatelessWidget {
                   const SizedBox(width: 16),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () {},
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => ReportScreen(pharmacyName: pharmacyName),
+                          ),
+                        );
+                      },
                       child: Container(
                         height: 120,
                         decoration: BoxDecoration(
