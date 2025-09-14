@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'services/auth_service.dart';
 
 class ProductsScreen extends StatefulWidget {
-  const ProductsScreen({Key? key}) : super(key: key);
+  final int placeId;
+  final String placeName;
+  const ProductsScreen({Key? key, required this.placeId, required this.placeName}) : super(key: key);
 
   @override
   State<ProductsScreen> createState() => _ProductsScreenState();
@@ -70,6 +72,66 @@ class _ProductsScreenState extends State<ProductsScreen> {
     }
   }
 
+  Future<void> _addOrder(int productId, String productName) async {
+    int quantity = 1;
+    final quantityController = TextEditingController(text: '1');
+    final result = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Order $productName'),
+        content: TextField(
+          controller: quantityController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Quantity'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              final q = int.tryParse(quantityController.text);
+              if (q != null && q > 0) {
+                Navigator.pop(context, q);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    if (result == null) return;
+    quantity = result;
+    // Send order to backend
+    try {
+      final authService = AuthService();
+      final token = await authService.getToken();
+      if (token == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Authentication required.')));
+        return;
+      }
+      final url = Uri.parse('http://10.0.2.2:8000/api/v1/orders');
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'product_id': productId,
+          'place_id': widget.placeId,
+          'quantity': quantity,
+        }),
+      );
+      if (response.statusCode == 201) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order added!')));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add order: ${response.body}')));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
   String _getAvailabilityColor(String availability) {
     switch (availability) {
       case 'available':
@@ -101,7 +163,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Products'),
+        title: Text('Products at ${widget.placeName}'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 1,
@@ -242,6 +304,15 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                             ),
                                           ),
                                         ],
+                                        const SizedBox(height: 8),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: ElevatedButton.icon(
+                                            icon: const Icon(Icons.add_shopping_cart),
+                                            label: const Text('Add to Orders'),
+                                            onPressed: () => _addOrder(product['id'], product['name'] ?? ''),
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),

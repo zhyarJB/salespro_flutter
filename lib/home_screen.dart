@@ -8,8 +8,10 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'visit_activity_screen.dart';
+import 'orders_screen.dart';
 
 class PlaceMarker {
+  final int id;
   final LatLng position;
   final String name;
   final String type;
@@ -17,7 +19,7 @@ class PlaceMarker {
   final String? contactPerson;
   final String? phone;
   final String? email;
-  PlaceMarker({required this.position, required this.name, required this.type, this.address, this.contactPerson, this.phone, this.email});
+  PlaceMarker({required this.id, required this.position, required this.name, required this.type, this.address, this.contactPerson, this.phone, this.email});
 }
 
 class HomeScreen extends StatefulWidget {
@@ -151,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _markers = locations
               .where((loc) => loc['latitude'] != null && loc['longitude'] != null)
               .map((loc) => PlaceMarker(
+                    id: loc['id'],
                     position: LatLng(
                       (loc['latitude'] as num).toDouble(),
                       (loc['longitude'] as num).toDouble(),
@@ -371,8 +374,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     print('POST /locations status: ${response.statusCode}');
     print('POST /locations response: ${response.body}');
     if (response.statusCode == 201) {
+      final responseData = jsonDecode(response.body);
+      final newLocation = responseData['data']['location'] ?? responseData['data'];
       setState(() {
-        _markers.add(PlaceMarker(position: latlng, name: name, type: type, address: address, contactPerson: contactPerson, phone: phone, email: email));
+        _markers.add(PlaceMarker(
+          id: newLocation['id'],
+          position: latlng,
+          name: name,
+          type: type,
+          address: address,
+          contactPerson: contactPerson,
+          phone: phone,
+          email: email,
+        ));
       });
       print('PinPoint added and saved to backend: $name, $type, $latlng');
       print('Markers after add: $_markers');
@@ -484,7 +498,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ListTile(
                 leading: const Icon(Icons.shopping_bag, color: Colors.blue),
                 title: const Text('My Orders'),
-                onTap: () {},
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => const OrdersScreen()),
+                  );
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.calendar_today, color: Colors.deepPurple),
@@ -770,6 +788,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                         Navigator.of(context).push(
                                           MaterialPageRoute(
                                             builder: (context) => VisitActivityScreen(
+                                              placeId: _selectedMarker!.id,
                                               pharmacyName: _selectedMarker!.name,
                                             ),
                                           ),

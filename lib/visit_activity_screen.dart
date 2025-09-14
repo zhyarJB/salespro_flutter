@@ -3,8 +3,9 @@ import 'products_screen.dart';
 import 'report_screen.dart';
 
 class VisitActivityScreen extends StatelessWidget {
+  final int placeId;
   final String pharmacyName;
-  const VisitActivityScreen({Key? key, required this.pharmacyName}) : super(key: key);
+  const VisitActivityScreen({Key? key, required this.placeId, required this.pharmacyName}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +79,7 @@ class VisitActivityScreen extends StatelessWidget {
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (context) => const ProductsScreen(),
+                            builder: (context) => ProductsScreen(placeId: placeId, placeName: pharmacyName),
                           ),
                         );
                       },
