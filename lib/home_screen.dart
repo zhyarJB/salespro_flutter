@@ -107,7 +107,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final authService = AuthService();
       final token = await authService.getToken();
       if (token == null) return;
-      final url = Uri.parse('http://10.0.2.2:8000/api/v1/profile');
+      final baseUrl = await AuthService.getBaseUrl();
+      final url = Uri.parse('$baseUrl/profile');
       final response = await http.get(
         url,
         headers: {
@@ -133,10 +134,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final token = await authService.getToken();
       if (token == null) {
         setState(() { _isLoading = false; });
-        print('No auth token found for fetching locations.');
         return;
       }
-      final url = Uri.parse('http://10.0.2.2:8000/api/v1/locations');
+      final baseUrl = await AuthService.getBaseUrl();
+      final url = Uri.parse('$baseUrl/locations');
       final response = await http.get(
         url,
         headers: {
@@ -144,8 +145,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           'Accept': 'application/json',
         },
       );
-      print('GET /locations status: ${response.statusCode}');
-      print('API response: ${response.body}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final locations = data['data']['locations'] as List<dynamic>;
@@ -168,22 +167,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               .toList();
           _isLoading = false;
         });
-        print('Markers after fetch: $_markers');
       } else {
         setState(() { _isLoading = false; });
-        print('Failed to fetch locations: ${response.statusCode}');
       }
     } catch (e) {
       setState(() { _isLoading = false; });
-      print('Error fetching locations: $e');
     }
   }
 
   Future<void> _getCurrentLocation() async {
-    print('Attempting to get current location...');
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      print('Location services are disabled.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Location services are disabled. Please enable them.')),
@@ -195,7 +189,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        print('Location permission denied.');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Location permission denied. Please allow location access.')),
@@ -205,7 +198,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
     }
     if (permission == LocationPermission.deniedForever) {
-      print('Location permission permanently denied.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Location permission permanently denied. Please enable it in settings.')),
@@ -218,9 +210,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
       });
-      print('Current position: [32m${position.latitude}, ${position.longitude}[0m');
     } catch (e) {
-      print('Error getting location: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error getting location: $e')),
@@ -346,10 +336,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final authService = AuthService();
     final token = await authService.getToken();
     if (token == null) {
-      print('No auth token found.');
       return;
     }
-    final url = Uri.parse('http://10.0.2.2:8000/api/v1/locations');
+    final baseUrl = await AuthService.getBaseUrl();
+    final url = Uri.parse('$baseUrl/locations');
     final body = {
       'name': name,
       'type': type,
@@ -371,8 +361,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       },
       body: jsonEncode(body),
     );
-    print('POST /locations status: ${response.statusCode}');
-    print('POST /locations response: ${response.body}');
     if (response.statusCode == 201) {
       final responseData = jsonDecode(response.body);
       final newLocation = responseData['data']['location'] ?? responseData['data'];
@@ -388,11 +376,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           email: email,
         ));
       });
-      print('PinPoint added and saved to backend: $name, $type, $latlng');
-      print('Markers after add: $_markers');
       await _fetchLocations();
     } else {
-      print('Failed to save PinPoint: ${response.body}');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to save PinPoint: ${response.body}')),
       );
@@ -424,7 +409,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    print('Building HomeScreen. _currentPosition=$_currentPosition');
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -539,7 +523,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   final authService = AuthService();
                   final token = await authService.getToken();
                   if (token != null) {
-                    final url = Uri.parse('http://10.0.2.2:8000/api/v1/logout');
+                    final baseUrl = await AuthService.getBaseUrl();
+                    final url = Uri.parse('$baseUrl/logout');
                     await http.post(
                       url,
                       headers: {
@@ -817,64 +802,91 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ],
             ),
           ),
-          // Start/Stop Visit button
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              vertical: 16.0,
-              horizontal: 32.0,
-            ),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4B3AFF),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+          // Bottom action section with proper spacing
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, -2),
                 ),
-                onPressed: _visitStarted ? _stopVisit : _startVisit,
-                child: Text(
-                  _visitStarted ? 'Stop Visit' : 'Start Visit',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-              ),
+              ],
             ),
-          ),
-          // Working hours count up
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16.0),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 4,
-                    offset: Offset(0, 2),
-                  ),
-                ],
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
+            child: SafeArea(
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'Working Hours: ${_formatDuration(_elapsed)}',
-                    style: const TextStyle(fontSize: 16),
+                  // Working hours display
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[50],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[300]!),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.timer, size: 20, color: Color(0xFF4B3AFF)),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Working Hours: ${_formatDuration(_elapsed)}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.timer, size: 20),
+                  const SizedBox(height: 12),
+                  // Start/Stop Visit button and Location button side by side
+                  Row(
+                    children: [
+                      // Start/Stop Visit button
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF4B3AFF),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            elevation: 2,
+                          ),
+                          onPressed: _visitStarted ? _stopVisit : _startVisit,
+                          child: Text(
+                            _visitStarted ? 'Stop Visit' : 'Start Visit',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Location button
+                      FloatingActionButton(
+                        onPressed: _getCurrentLocationAndCenter,
+                        backgroundColor: const Color(0xFF4B3AFF),
+                        foregroundColor: Colors.white,
+                        elevation: 2,
+                        mini: false,
+                        child: const Icon(Icons.my_location),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        child: Icon(Icons.my_location),
-        onPressed: _getCurrentLocationAndCenter,
       ),
       backgroundColor: Colors.white,
     );
@@ -1009,13 +1021,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final authService = AuthService();
     final token = await authService.getToken();
     if (token == null) {
-      print('No auth token found.');
       return;
     }
-    // You need the location id for update. We'll assume you add it to PlaceMarker if not already.
-    // For now, let's find the id from the backend data (you may want to refactor PlaceMarker to include id).
-    // We'll use the address, name, and lat/lng to find the id (not perfect, but works for now).
-    final url = Uri.parse('http://10.0.2.2:8000/api/v1/locations');
+    // Find location ID from backend data to update
+    final baseUrl = await AuthService.getBaseUrl();
+    final url = Uri.parse('$baseUrl/locations');
     final getResponse = await http.get(url, headers: {
       'Authorization': 'Bearer $token',
       'Accept': 'application/json',
@@ -1032,7 +1042,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       );
       if (match != null) {
         final id = match['id'];
-        final updateUrl = Uri.parse('http://10.0.2.2:8000/api/v1/locations/$id');
+        final baseUrl = await AuthService.getBaseUrl();
+        final updateUrl = Uri.parse('$baseUrl/locations/$id');
         final body = {
           'name': name,
           'type': type,
@@ -1054,8 +1065,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           },
           body: jsonEncode(body),
         );
-        print('PUT /locations/$id status: ${putResponse.statusCode}');
-        print('PUT /locations/$id response: ${putResponse.body}');
         if (putResponse.statusCode == 200) {
           await _fetchLocations();
         } else {

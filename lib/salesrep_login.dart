@@ -17,25 +17,47 @@ class _SalesRepLoginScreenState extends State<SalesRepLoginScreen> {
   String? _errorMessage;
 
   Future<void> _login() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
-    final authService = AuthService();
-    final success = await authService.login(
-      _emailController.text.trim(),
-      _passwordController.text,
-    );
-    setState(() {
-      _isLoading = false;
-      _errorMessage = success ? null : 'Invalid email or password';
-    });
-    if (success) {
-      // Navigate to HomeScreen
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
+
+    try {
+      final authService = AuthService();
+      final success = await authService.login(
+        _emailController.text.trim(),
+        _passwordController.text,
       );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+        if (success) {
+          _errorMessage = null;
+        } else {
+          _errorMessage = 'Invalid email or password';
+        }
+      });
+
+      if (success) {
+        // Navigate to HomeScreen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Connection error: ${e.toString().replaceAll('Exception: ', '')}\n\nPlease check:\n1. Server is running on port 8000\n2. CORS is configured\n3. Network connection';
+      });
     }
   }
 

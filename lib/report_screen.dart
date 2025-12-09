@@ -39,36 +39,13 @@ class _ReportScreenState extends State<ReportScreen> {
         });
         return;
       }
-      // TODO: Replace with actual visitId and endpoint
-      // For now, just simulate a successful send
-      // final url = Uri.parse('http://10.0.2.2:8000/api/v1/visits/{visitId}/reports');
-      // final response = await http.post(
-      //   url,
-      //   headers: {
-      //     'Authorization': 'Bearer $token',
-      //     'Accept': 'application/json',
-      //     'Content-Type': 'application/json',
-      //   },
-      //   body: jsonEncode({'notes': text}),
-      // );
+      // TODO: Implement actual API call when backend endpoint is ready
       await Future.delayed(const Duration(seconds: 1));
       setState(() {
         _isLoading = false;
         _message = 'Report sent to your Sales Manager!';
         _controller.clear();
       });
-      // if (response.statusCode == 201) {
-      //   setState(() {
-      //     _isLoading = false;
-      //     _message = 'Report sent to your Sales Manager!';
-      //     _controller.clear();
-      //   });
-      // } else {
-      //   setState(() {
-      //     _isLoading = false;
-      //     _message = 'Failed to send report.';
-      //   });
-      // }
     } catch (e) {
       setState(() {
         _isLoading = false;

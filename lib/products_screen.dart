@@ -41,7 +41,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
         return;
       }
 
-      final url = Uri.parse('http://10.0.2.2:8000/api/v1/products');
+      final baseUrl = await AuthService.getBaseUrl();
+      final url = Uri.parse('$baseUrl/products');
       final response = await http.get(
         url,
         headers: {
@@ -108,7 +109,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Authentication required.')));
         return;
       }
-      final url = Uri.parse('http://10.0.2.2:8000/api/v1/orders');
+      final baseUrl = await AuthService.getBaseUrl();
+      final url = Uri.parse('$baseUrl/orders');
       final response = await http.post(
         url,
         headers: {

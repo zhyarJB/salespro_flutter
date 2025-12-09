@@ -30,7 +30,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
         setState(() { _isLoading = false; _error = 'No auth token found.'; });
         return;
       }
-      final url = Uri.parse('http://10.0.2.2:8000/api/v1/orders');
+      final baseUrl = await AuthService.getBaseUrl();
+      final url = Uri.parse('$baseUrl/orders');
       final response = await http.get(
         url,
         headers: {
@@ -45,7 +46,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
           _isLoading = false;
         });
       } else {
-        print('Orders fetch failed: \nStatus: ${response.statusCode}\nBody: ${response.body}');
         setState(() { _isLoading = false; _error = 'Failed to fetch orders.'; });
       }
     } catch (e) {
