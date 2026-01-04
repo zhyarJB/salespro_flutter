@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'services/auth_service.dart';
+import 'core/services/api_service.dart';
 
 class ProductsScreen extends StatefulWidget {
   final int placeId;
@@ -30,45 +28,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
     });
 
     try {
-      final authService = AuthService();
-      final token = await authService.getToken();
+      final apiService = ApiService();
+      final response = await apiService.get('/products');
+      final data = apiService.parseResponse(response);
+      final products = data['data']['products'] as List<dynamic>;
       
-      if (token == null) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Authentication required';
-        });
-        return;
-      }
-
-      final baseUrl = await AuthService.getBaseUrl();
-      final url = Uri.parse('$baseUrl/products');
-      final response = await http.get(
-        url,
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final products = data['data']['products'] as List<dynamic>;
-        
-        setState(() {
-          _products = products.map((product) => Map<String, dynamic>.from(product)).toList();
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Failed to load products: ${response.statusCode}';
-        });
-      }
+      setState(() {
+        _products = products.map((product) => Map<String, dynamic>.from(product)).toList();
+        _isLoading = false;
+      });
     } catch (e) {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Error: $e';
+        _errorMessage = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
       });
     }
   }
@@ -103,34 +75,30 @@ class _ProductsScreenState extends State<ProductsScreen> {
     quantity = result;
     // Send order to backend
     try {
-      final authService = AuthService();
-      final token = await authService.getToken();
-      if (token == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Authentication required.')));
-        return;
-      }
-      final baseUrl = await AuthService.getBaseUrl();
-      final url = Uri.parse('$baseUrl/orders');
-      final response = await http.post(
-        url,
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
+      final apiService = ApiService();
+      final response = await apiService.post(
+        '/orders',
+        body: {
           'product_id': productId,
           'place_id': widget.placeId,
           'quantity': quantity,
-        }),
+        },
       );
-      if (response.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order added!')));
+      final data = apiService.parseResponse(response);
+      
+      if (data['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Order added successfully!')),
+        );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add order: ${response.body}')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['message'] ?? 'Failed to add order')),
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${e.toString().replaceAll('Exception: ', '')}')),
+      );
     }
   }
 

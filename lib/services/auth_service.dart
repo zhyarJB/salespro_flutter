@@ -2,17 +2,32 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import '../core/config/api_config.dart';
 
 class AuthService {
+  // Secure storage for tokens
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
+
+  // SharedPreferences for non-sensitive data (visit state, etc.)
+  static SharedPreferences? _prefs;
+  
   // ============================================
   // AUTOMATIC DETECTION - Works on both emulator and physical device!
   // ============================================
   // Your computer's IP address (for physical device testing)
   // Find it with: ipconfig (Windows) or ifconfig (Mac/Linux)
-  // Update this if your IP changes
-  static const String _localNetworkIp = '192.168.0.69';
+  // Update this if your IP changes or use environment variables
+  static String get _localNetworkIp => ApiConfig.localNetworkIp;
   
   // Cache for emulator detection
   static bool? _isEmulatorCache;
@@ -73,7 +88,7 @@ class AuthService {
   static Future<String> getBaseUrl() async {
     if (kIsWeb) {
       // For web (Chrome), use localhost
-      return 'http://localhost:8000/api/v1';
+      return 'http://localhost:${ApiConfig.defaultPort}/api/${ApiConfig.apiVersion}';
     } else {
       final isEmulator = await _isEmulator();
       
@@ -81,16 +96,16 @@ class AuthService {
         // Using emulator/simulator
         // Android emulator uses 10.0.2.2 to reach host machine
         if (Platform.isAndroid) {
-          return 'http://10.0.2.2:8000/api/v1';
+          return 'http://10.0.2.2:${ApiConfig.defaultPort}/api/${ApiConfig.apiVersion}';
         } else {
           // iOS simulator uses localhost
-          return 'http://localhost:8000/api/v1';
+          return 'http://localhost:${ApiConfig.defaultPort}/api/${ApiConfig.apiVersion}';
         }
       } else {
         // Using physical device - use computer's network IP
         // Make sure phone and computer are on same WiFi
         // Start Laravel with: php artisan serve --host=0.0.0.0 --port=8000
-        return 'http://$_localNetworkIp:8000/api/v1';
+        return 'http://${_localNetworkIp}:${ApiConfig.defaultPort}/api/${ApiConfig.apiVersion}';
       }
     }
   }
@@ -100,11 +115,11 @@ class AuthService {
   // This getter defaults to emulator address
   static String get baseUrl {
     if (kIsWeb) {
-      return 'http://localhost:8000/api/v1';
+      return 'http://localhost:${ApiConfig.defaultPort}/api/${ApiConfig.apiVersion}';
     } else {
       // Default to emulator for synchronous access
       // For async access with auto-detection, use getBaseUrl() instead
-      return 'http://10.0.2.2:8000/api/v1';
+      return 'http://10.0.2.2:${ApiConfig.defaultPort}/api/${ApiConfig.apiVersion}';
     }
   }
   
@@ -149,22 +164,64 @@ class AuthService {
     }
   }
 
-  // Save token securely
+  // Initialize SharedPreferences
+  Future<void> _initPrefs() async {
+    _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  // Save token securely using FlutterSecureStorage
   Future<void> _saveToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('auth_token', token);
+    await _storage.write(key: 'auth_token', value: token);
   }
 
-  // Get token
+  // Get token from secure storage
   Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('auth_token');
+    return await _storage.read(key: 'auth_token');
   }
 
-  // Logout
+  // Refresh token
+  Future<bool> refreshToken() async {
+    try {
+      final token = await getToken();
+      if (token == null) return false;
+
+      final baseUrl = await getBaseUrl();
+      final url = Uri.parse('$baseUrl/refresh');
+      
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Connection timeout');
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final newToken = data['data']?['token'];
+        if (newToken != null) {
+          await _saveToken(newToken);
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Token refresh failed: $e');
+      return false;
+    }
+  }
+
+  // Logout - clear secure storage
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
+    await _storage.delete(key: 'auth_token');
+    await _initPrefs();
+    await _prefs?.remove('visit_elapsed');
+    await _prefs?.remove('visit_started');
   }
 
   // Example of an authenticated GET request

@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'services/auth_service.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'core/services/api_service.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({Key? key}) : super(key: key);
@@ -24,32 +22,19 @@ class _OrdersScreenState extends State<OrdersScreen> {
   Future<void> _fetchOrders() async {
     setState(() { _isLoading = true; _error = null; });
     try {
-      final authService = AuthService();
-      final token = await authService.getToken();
-      if (token == null) {
-        setState(() { _isLoading = false; _error = 'No auth token found.'; });
-        return;
-      }
-      final baseUrl = await AuthService.getBaseUrl();
-      final url = Uri.parse('$baseUrl/orders');
-      final response = await http.get(
-        url,
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        },
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _orders = data['data']['orders'] ?? [];
-          _isLoading = false;
-        });
-      } else {
-        setState(() { _isLoading = false; _error = 'Failed to fetch orders.'; });
-      }
+      final apiService = ApiService();
+      final response = await apiService.get('/orders');
+      final data = apiService.parseResponse(response);
+      
+      setState(() {
+        _orders = data['data']['orders'] ?? [];
+        _isLoading = false;
+      });
     } catch (e) {
-      setState(() { _isLoading = false; _error = 'Error: $e'; });
+      setState(() { 
+        _isLoading = false; 
+        _error = 'Error: ${e.toString().replaceAll('Exception: ', '')}'; 
+      });
     }
   }
 

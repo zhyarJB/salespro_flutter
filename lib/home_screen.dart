@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'services/auth_service.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'visit_activity_screen.dart';
 import 'orders_screen.dart';
+import 'core/services/api_service.dart';
+import 'core/config/api_config.dart';
 
 class PlaceMarker {
   final int id;
@@ -104,74 +104,54 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Future<void> _fetchProfile() async {
     try {
-      final authService = AuthService();
-      final token = await authService.getToken();
-      if (token == null) return;
-      final baseUrl = await AuthService.getBaseUrl();
-      final url = Uri.parse('$baseUrl/profile');
-      final response = await http.get(
-        url,
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        },
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _salesRepName = data['data']['user']['name'] ?? 'Sales Rep';
-        });
-      }
+      final apiService = ApiService();
+      final response = await apiService.get('/profile');
+      final data = apiService.parseResponse(response);
+      setState(() {
+        _salesRepName = data['data']['user']['name'] ?? 'Sales Rep';
+      });
     } catch (e) {
-      // Optionally handle error
+      // Silently fail - profile is not critical for map display
+      debugPrint('Failed to fetch profile: $e');
     }
   }
 
   Future<void> _fetchLocations() async {
     setState(() { _isLoading = true; });
     try {
-      final authService = AuthService();
-      final token = await authService.getToken();
-      if (token == null) {
-        setState(() { _isLoading = false; });
-        return;
-      }
-      final baseUrl = await AuthService.getBaseUrl();
-      final url = Uri.parse('$baseUrl/locations');
-      final response = await http.get(
-        url,
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        },
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final locations = data['data']['locations'] as List<dynamic>;
-        setState(() {
-          _markers = locations
-              .where((loc) => loc['latitude'] != null && loc['longitude'] != null)
-              .map((loc) => PlaceMarker(
-                    id: loc['id'],
-                    position: LatLng(
-                      (loc['latitude'] as num).toDouble(),
-                      (loc['longitude'] as num).toDouble(),
-                    ),
-                    name: loc['name'] ?? '',
-                    type: loc['type'] ?? '',
-                    address: loc['address'] as String?,
-                    contactPerson: loc['contact_person'] as String?,
-                    phone: loc['phone'] as String?,
-                    email: loc['email'] as String?,
-                  ))
-              .toList();
-          _isLoading = false;
-        });
-      } else {
-        setState(() { _isLoading = false; });
-      }
+      final apiService = ApiService();
+      final response = await apiService.get('/locations');
+      final data = apiService.parseResponse(response);
+      final locations = data['data']['locations'] as List<dynamic>;
+      
+      setState(() {
+        _markers = locations
+            .where((loc) => loc['latitude'] != null && loc['longitude'] != null)
+            .map((loc) => PlaceMarker(
+                  id: loc['id'],
+                  position: LatLng(
+                    (loc['latitude'] as num).toDouble(),
+                    (loc['longitude'] as num).toDouble(),
+                  ),
+                  name: loc['name'] ?? '',
+                  type: loc['type'] ?? '',
+                  address: loc['address'] as String?,
+                  contactPerson: loc['contact_person'] as String?,
+                  phone: loc['phone'] as String?,
+                  email: loc['email'] as String?,
+                ))
+            .toList();
+        _isLoading = false;
+      });
     } catch (e) {
-      setState(() { _isLoading = false; });
+      setState(() { 
+        _isLoading = false;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to load locations: ${e.toString().replaceAll('Exception: ', '')}')),
+          );
+        }
+      });
     }
   }
 
@@ -333,54 +313,51 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _saveLocationToBackend(String name, String type, LatLng latlng, String contactPerson, String phone, String email, String address) async {
-    final authService = AuthService();
-    final token = await authService.getToken();
-    if (token == null) {
-      return;
-    }
-    final baseUrl = await AuthService.getBaseUrl();
-    final url = Uri.parse('$baseUrl/locations');
-    final body = {
-      'name': name,
-      'type': type,
-      'latitude': latlng.latitude,
-      'longitude': latlng.longitude,
-      'address': address,
-      'contact_person': contactPerson,
-      'phone': phone,
-    };
-    if (email.isNotEmpty) {
-      body['email'] = email;
-    }
-    final response = await http.post(
-      url,
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(body),
-    );
-    if (response.statusCode == 201) {
-      final responseData = jsonDecode(response.body);
-      final newLocation = responseData['data']['location'] ?? responseData['data'];
-      setState(() {
-        _markers.add(PlaceMarker(
-          id: newLocation['id'],
-          position: latlng,
-          name: name,
-          type: type,
-          address: address,
-          contactPerson: contactPerson,
-          phone: phone,
-          email: email,
-        ));
-      });
-      await _fetchLocations();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save PinPoint: ${response.body}')),
-      );
+    try {
+      final apiService = ApiService();
+      final body = <String, dynamic>{
+        'name': name,
+        'type': type,
+        'latitude': latlng.latitude,
+        'longitude': latlng.longitude,
+        'address': address,
+        'contact_person': contactPerson,
+        'phone': phone,
+      };
+      if (email.isNotEmpty) {
+        body['email'] = email;
+      }
+      
+      final response = await apiService.post('/locations', body: body);
+      final data = apiService.parseResponse(response);
+      
+      if (data['success'] == true) {
+        final newLocation = data['data']['location'] ?? data['data'];
+        setState(() {
+          _markers.add(PlaceMarker(
+            id: newLocation['id'],
+            position: latlng,
+            name: name,
+            type: type,
+            address: address,
+            contactPerson: contactPerson,
+            phone: phone,
+            email: email,
+          ));
+        });
+        await _fetchLocations();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location saved successfully!')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save location: ${e.toString().replaceAll('Exception: ', '')}')),
+        );
+      }
     }
   }
 
@@ -520,20 +497,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 leading: const Icon(Icons.logout, color: Colors.red),
                 title: const Text('Logout', style: TextStyle(color: Colors.red)),
                 onTap: () async {
-                  final authService = AuthService();
-                  final token = await authService.getToken();
-                  if (token != null) {
-                    final baseUrl = await AuthService.getBaseUrl();
-                    final url = Uri.parse('$baseUrl/logout');
-                    await http.post(
-                      url,
-                      headers: {
-                        'Authorization': 'Bearer $token',
-                        'Accept': 'application/json',
-                      },
-                    );
+                  try {
+                    final apiService = ApiService();
+                    await apiService.post('/logout', body: {});
+                  } catch (e) {
+                    // Continue with logout even if API call fails
                   }
-                  await authService.logout();
+                  await AuthService().logout();
                   if (!mounted) return;
                   Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
                 },
@@ -613,7 +583,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   mapController: _mapController,
                   options: MapOptions(
                     initialCenter: erbilLatLng,
-                    initialZoom: 13.0,
+                    initialZoom: ApiConfig.defaultZoomLevel,
                     onLongPress: (tapPosition, latlng) {
                       _showAddMarkerDialog(latlng);
                     },
@@ -1018,60 +988,38 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _updateLocation(PlaceMarker marker, String name, String type, String contactPerson, String phone, String email, String address) async {
-    final authService = AuthService();
-    final token = await authService.getToken();
-    if (token == null) {
-      return;
-    }
-    // Find location ID from backend data to update
-    final baseUrl = await AuthService.getBaseUrl();
-    final url = Uri.parse('$baseUrl/locations');
-    final getResponse = await http.get(url, headers: {
-      'Authorization': 'Bearer $token',
-      'Accept': 'application/json',
-    });
-    if (getResponse.statusCode == 200) {
-      final data = jsonDecode(getResponse.body);
-      final locations = data['data']['locations'] as List<dynamic>;
-      final match = locations.firstWhere(
-        (loc) =>
-          (loc['name'] ?? '') == marker.name &&
-          (loc['latitude'] as num).toDouble() == marker.position.latitude &&
-          (loc['longitude'] as num).toDouble() == marker.position.longitude,
-        orElse: () => null,
-      );
-      if (match != null) {
-        final id = match['id'];
-        final baseUrl = await AuthService.getBaseUrl();
-        final updateUrl = Uri.parse('$baseUrl/locations/$id');
-        final body = {
-          'name': name,
-          'type': type,
-          'latitude': marker.position.latitude,
-          'longitude': marker.position.longitude,
-          'address': address,
-          'contact_person': contactPerson,
-          'phone': phone,
-        };
-        if (email.isNotEmpty) {
-          body['email'] = email;
-        }
-        final putResponse = await http.put(
-          updateUrl,
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(body),
-        );
-        if (putResponse.statusCode == 200) {
-          await _fetchLocations();
-        } else {
+    try {
+      // Use marker ID directly instead of fetching all locations
+      final apiService = ApiService();
+      final body = {
+        'name': name,
+        'type': type,
+        'latitude': marker.position.latitude,
+        'longitude': marker.position.longitude,
+        'address': address,
+        'contact_person': contactPerson,
+        'phone': phone,
+      };
+      if (email.isNotEmpty) {
+        body['email'] = email;
+      }
+      
+      final response = await apiService.put('/locations/${marker.id}', body: body);
+      final data = apiService.parseResponse(response);
+      
+      if (data['success'] == true) {
+        await _fetchLocations();
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to update location: ${putResponse.body}')),
+            const SnackBar(content: Text('Location updated successfully')),
           );
         }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update location: $e')),
+        );
       }
     }
   }
@@ -1079,17 +1027,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(covariant HomeScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_currentPosition != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _mapController.move(_currentPosition!, 16.0);
-      });
-    }
+      if (_currentPosition != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _mapController.move(_currentPosition!, ApiConfig.locationZoomLevel);
+        });
+      }
   }
 
   void _getCurrentLocationAndCenter() async {
     await _getCurrentLocation();
     if (_currentPosition != null) {
-      _mapController.move(_currentPosition!, 16.0);
+      _mapController.move(_currentPosition!, ApiConfig.locationZoomLevel);
     }
   }
 }
